@@ -1,4 +1,3 @@
-#Requires -RunAsAdministrator
 <#
     Install-ShutdownTasks.ps1
     -------------------------------------------------------------------------
@@ -14,7 +13,12 @@
                       for the configured time. No dialog (no one to see it).
 
     Also (by default) locks the scripts + state folders to admin-write-only.
-    Run this from an ELEVATED PowerShell prompt.
+
+    Registering scheduled tasks requires admin rights, so this script
+    self-elevates: if you launch it un-elevated (e.g. with
+        powershell -NoProfile -ExecutionPolicy Bypass -File C:\Scripts\Install-ShutdownTasks.ps1
+    ) it relaunches itself through a UAC prompt and keeps that window open so
+    you can read the result.
     -------------------------------------------------------------------------
 #>
 
@@ -29,6 +33,37 @@ param(
     [switch]$NoLockDown                                       # skip folder ACL hardening
 )
 
+# ============================================================================
+# Self-elevate: if not running as Administrator, relaunch elevated (UAC) with
+# the same parameters, then exit this (un-elevated) instance.
+# ============================================================================
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
+           ).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+
+if (-not $isAdmin) {
+    Write-Host "Not elevated - relaunching with administrator rights (approve the UAC prompt)..." -ForegroundColor Yellow
+
+    # -NoExit keeps the elevated window open so you can see the output / errors.
+    $relaunch = @('-NoExit','-NoProfile','-ExecutionPolicy','Bypass','-File', ('"{0}"' -f $PSCommandPath))
+
+    # Forward any parameters you passed so customizations survive the relaunch.
+    foreach ($kv in $PSBoundParameters.GetEnumerator()) {
+        if ($kv.Value -is [switch]) {
+            if ($kv.Value.IsPresent) { $relaunch += "-$($kv.Key)" }
+        } else {
+            $relaunch += "-$($kv.Key)"
+            $relaunch += ('"{0}"' -f $kv.Value)
+        }
+    }
+
+    try {
+        Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $relaunch
+    } catch {
+        Write-Host "Elevation cancelled or failed. Re-run from an elevated PowerShell prompt." -ForegroundColor Red
+    }
+    return
+}
+
 $ErrorActionPreference = 'Stop'
 $idlePs   = Join-Path $ScriptsDir   'IdleShutdown.ps1'
 $nuPs     = Join-Path $ScriptsDir   'NoUserShutdown.ps1'
@@ -40,7 +75,7 @@ if ($missing) {
     Write-Host "Missing script file(s):" -ForegroundColor Red
     $missing | ForEach-Object { Write-Host "  $_" }
     Write-Host "Copy IdleShutdown.ps1 and NoUserShutdown.ps1 into $ScriptsDir first, then re-run."
-    exit 1
+    return
 }
 
 $forceArg = if ($Force) { ' -Force' } else { '' }
@@ -103,6 +138,5 @@ if (-not $NoLockDown) {
 
 Write-Host ""
 Write-Host "Done." -ForegroundColor Cyan
-Write-Host "Verify : Get-ScheduledTask IdleShutdown, NoUserShutdown | Format-Table TaskName, State"
+Write-Host "Verify : Get-ScheduledTask | Where-Object TaskName -in 'IdleShutdown','NoUserShutdown' | Format-Table TaskName, State"
 Write-Host "Logs   : `$env:LOCALAPPDATA\IdleShutdown.log   and   $stateDir\nouser.log"
-Write-Host "Test   : run a no-user dry run with  .\NoUserShutdown.ps1 -DryRun -NoUserMinutes 2  (see README)"
