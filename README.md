@@ -2,7 +2,7 @@
 
 Automatically shuts Windows down after a period of no keyboard/mouse activity, but
 **skips the shutdown if the machine is actually busy** — an active remote session,
-a running build or download, media playback, or high CPU/network load. Before
+a running build or media playback, or high CPU/network load. Before
 shutting down it shows a warning dialog with a countdown and a **Cancel** button;
 moving the mouse also cancels.
 
@@ -28,15 +28,15 @@ Suggested location: `C:\Scripts\`. See the security note at the end about lockin
    - **AnyDesk** — a *live* session is in progress. Detected via AnyDesk's CPU usage,
      so merely having AnyDesk installed/running does **not** block shutdown — only an
      actual connection does.
-   - **Watched processes** — a download, build, or media player from the configured
-     list is running (qBittorrent, OneDrive, Flutter/Dart, Java, Node, Docker, Erlang
-     `erl`, babashka `bb`, VLC, etc.).
+   - **Watched processes** — a build, or media player from the configured
+     list is running (Flutter/Dart, Java, Erlang
+     `erl`, VLC, etc.).
    - **CPU** at or above `CpuBusyPercent`.
    - **Network** at or above `NetBusyKBps`.
 3. If the machine is genuinely idle, the warning dialog appears with a countdown.
    Clicking **Cancel shutdown**, pressing Esc, or moving the mouse cancels it.
 4. If the countdown reaches zero, it re-checks "busy" one last time (in case a
-   download started during the countdown) and then shuts down.
+   build or media playback started during the countdown) and then shuts down.
 
 All decisions are written to a log file (default `%LOCALAPPDATA%\IdleShutdown.log`)
 so you can see exactly why it shut down — or why it didn't.
@@ -123,7 +123,7 @@ dialog should appear with a 15-second countdown.
 
 **Test the busy checks** (these should *prevent* shutdown — verify in the log):
 
-- **Download / playback:** start a large download or open VLC, then let the machine
+- **Playback:** open VLC, then let the machine
   go idle. The log should say it skipped with the process name or "network busy."
 - **RDP:** connect via Remote Desktop, then let it idle. The log should report
   "active remote (RDP) session."
