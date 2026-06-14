@@ -4,5 +4,5 @@
 
 Dim shell
 Set shell = CreateObject("WScript.Shell")
-shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""C:\Scripts\IdleShutdown.ps1"" -Force", 0, False
+shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""C:\Scripts\IdleShutdown.ps1""", 0, False
 Set shell = Nothing
