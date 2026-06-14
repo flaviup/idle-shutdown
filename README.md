@@ -68,19 +68,19 @@ run only and leaves the system default untouched.
 Normal run with defaults (30 min idle, 60 s warning, graceful shutdown):
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\Scripts\IdleShutdown.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\IdleShutdown.ps1"
 ```
 
 Custom values:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\Scripts\IdleShutdown.ps1" -IdleMinutes 45 -WarningSeconds 90
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\IdleShutdown.ps1" -IdleMinutes 45 -WarningSeconds 90
 ```
 
 Force-close apps on shutdown (use with care — no save prompts):
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\Scripts\IdleShutdown.ps1" -Force
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\IdleShutdown.ps1" -Force
 ```
 
 ### "running scripts is disabled on this system"
@@ -110,7 +110,7 @@ is not required.
 Use short values so you don't have to wait 30 minutes. From a PowerShell window:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\Scripts\IdleShutdown.ps1" -IdleMinutes 1 -WarningSeconds 15
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\IdleShutdown.ps1" -IdleMinutes 1 -WarningSeconds 15
 ```
 
 Then **stop touching the keyboard and mouse**. After ~1 minute idle the warning
@@ -163,10 +163,10 @@ This is how to make Windows start the watcher every time you log in.
    - To show a brief console window, use:
      - Program/script: `powershell.exe`
      - Add arguments:
-       `-NoProfile -ExecutionPolicy Bypass -File "D:\Scripts\IdleShutdown.ps1"`
+       `-NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\IdleShutdown.ps1"`
    - To run **fully hidden** (recommended), use the VBS launcher instead:
      - Program/script: `wscript.exe`
-     - Add arguments: `"D:\Scripts\IdleShutdown.vbs"`
+     - Add arguments: `"C:\Scripts\IdleShutdown.vbs"`
 5. **Conditions** tab: if this is a desktop, uncheck **Start the task only if the
    computer is on AC power**.
 6. **Settings** tab: uncheck **Stop the task if it runs longer than...** (the script
@@ -183,7 +183,7 @@ PowerShell hidden; edit the path (and any parameters) inside it if your script l
 elsewhere:
 
 ```vbs
-shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""D:\Scripts\IdleShutdown.ps1""", 0, False
+shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""C:\Scripts\IdleShutdown.ps1""", 0, False
 ```
 
 To add parameters, put them inside the inner quotes, e.g.
