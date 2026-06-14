@@ -1,248 +1,280 @@
-# Idle Shutdown for Windows
+# Automatic Shutdown for Windows
 
-Automatically shuts Windows down after a period of no keyboard/mouse activity, but
-**skips the shutdown if the machine is actually busy** — an active remote session,
-a running build or media playback, or high CPU/network load. Before
-shutting down it shows a warning dialog with a countdown and a **Cancel** button;
-moving the mouse also cancels.
+Two complementary scheduled tasks that power a Windows machine down when it isn't
+being used, plus scripts to install and remove them **without touching the Task
+Scheduler GUI**.
+
+| Scenario | Script | Runs as | Trigger |
+|----------|--------|---------|---------|
+| Logged in, but away from the keyboard | `IdleShutdown.ps1` | you (interactive) | at logon, then loops |
+| Nobody logged on at all (lock/login screen) | `NoUserShutdown.ps1` | SYSTEM | every few minutes |
+
+The two cover different gaps and can run together: `IdleShutdown` handles "signed in
+but idle" and shows a cancellable warning; `NoUserShutdown` handles "no one is signed
+in" and runs silently in the background.
+
+All scripts assume the folder **`C:\Scripts`**. Change it with the installer's
+`-ScriptsDir` parameter if you use a different location.
+
+---
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `IdleShutdown.ps1` | The main script. Watches for inactivity, checks whether the machine is busy, shows the warning, and shuts down. |
-| `IdleShutdown.vbs` | Optional launcher that starts the PowerShell script **fully hidden** (no console window flashes at logon). |
-
-Suggested location: `C:\Scripts\`. See the security note at the end about locking the folder down.
-
----
-
-## How it works
-
-1. Every 30 seconds the script checks how long the machine has been idle, using the
-   Windows `GetLastInputInfo` API (real keyboard/mouse input — not just "screen on").
-2. Once idle time reaches `IdleMinutes`, it runs a **busy check** before doing
-   anything. If any of these are true it logs the reason, waits, and does *not* shut
-   down:
-   - **RDP** — an active (connected) remote desktop session exists.
-   - **AnyDesk** — a *live* session is in progress. Detected via AnyDesk's CPU usage,
-     so merely having AnyDesk installed/running does **not** block shutdown — only an
-     actual connection does.
-   - **Watched processes** — a build, or media player from the configured
-     list is running (Flutter/Dart, Java, Erlang
-     `erl`, VLC, etc.).
-   - **CPU** at or above `CpuBusyPercent`.
-   - **Network** at or above `NetBusyKBps`.
-3. If the machine is genuinely idle, the warning dialog appears with a countdown.
-   Clicking **Cancel shutdown**, pressing Esc, or moving the mouse cancels it.
-4. If the countdown reaches zero, it re-checks "busy" one last time (in case a
-   build or media playback started during the countdown) and then shuts down.
-
-All decisions are written to a log file (default `%LOCALAPPDATA%\IdleShutdown.log`)
-so you can see exactly why it shut down — or why it didn't.
+| `IdleShutdown.ps1` | Inactivity watcher. Shuts down after no input for N minutes, unless the machine is busy (remote session, build, download, playback, high CPU/network). Shows a countdown dialog with a **Cancel** button first. |
+| `NoUserShutdown.ps1` | "No user logged on" watcher. Shuts down once nobody has been logged on for N minutes. No dialog. |
+| `Install-ShutdownTasks.ps1` | Registers both scheduled tasks and (by default) locks down the folders. No GUI required. |
+| `Uninstall-ShutdownTasks.ps1` | Removes both scheduled tasks. |
+| `IdleShutdown.vbs` | *Optional.* Launches `IdleShutdown.ps1` with zero console flash. Only needed if you configure the idle task manually and want it fully hidden. |
 
 ---
 
-## Parameters
+## Quick start (recommended)
 
-All parameters are optional; the defaults are shown.
+1. Copy `IdleShutdown.ps1`, `NoUserShutdown.ps1`, `Install-ShutdownTasks.ps1`, and
+   `Uninstall-ShutdownTasks.ps1` into `C:\Scripts`.
+2. Open **PowerShell as Administrator** (right-click → Run as administrator).
+3. Run the installer:
+
+   ```
+   powershell -NoProfile -ExecutionPolicy Bypass -File C:\Scripts\Install-ShutdownTasks.ps1
+   ```
+
+That registers both tasks with sensible defaults (30 min idle, 60 s warning, 30 min
+no-user, checked every 5 min) and hardens the folders. To customize:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Scripts\Install-ShutdownTasks.ps1 `
+  -IdleMinutes 45 -WarningSeconds 90 -NoUserMinutes 20 -NoUserCheckMins 5
+```
+
+Confirm the tasks exist:
+
+```
+Get-ScheduledTask IdleShutdown, NoUserShutdown | Format-Table TaskName, State
+```
+
+To remove everything later:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Scripts\Uninstall-ShutdownTasks.ps1
+```
+
+### Installer parameters
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `-IdleMinutes` | `30` | Minutes of no keyboard/mouse input before the warning appears. |
-| `-WarningSeconds` | `60` | Length of the cancellable countdown on the warning dialog. |
-| `-CpuBusyPercent` | `25` | If total CPU is at/above this percent, the machine is considered busy and shutdown is skipped. |
-| `-NetBusyKBps` | `200` | If total network throughput is at/above this (KB/s), shutdown is skipped. |
-| `-AnyDeskCpuFrac` | `0.03` | AnyDesk CPU usage, as a fraction of one core, above which a live AnyDesk session is assumed (0.03 = 3% of one core). |
-| `-Force` | *(off)* | Switch. When present, force-closes apps without letting them save (`shutdown /s /f`). When absent, a graceful shutdown lets apps prompt to save. |
-| `-LogFile` | `%LOCALAPPDATA%\IdleShutdown.log` | Where decisions are logged. |
+| `-ScriptsDir` | `C:\Scripts` | Folder holding the scripts. |
+| `-IdleTaskUser` | current user | Account whose session shows the idle dialog. Override if you elevate with a different account than the one you log in with daily. |
+| `-IdleMinutes` | `30` | Idle minutes before the warning. |
+| `-WarningSeconds` | `60` | Countdown length. |
+| `-NoUserMinutes` | `30` | Minutes with no user logged on before shutdown. |
+| `-NoUserCheckMins` | `5` | How often the SYSTEM task runs. |
+| `-Force` | off | Pass `-Force` to **both** scripts (force-close apps without save prompts). |
+| `-NoLockDown` | off | Skip the folder ACL hardening. |
 
 ---
 
-## Calling the script
+## Manual setup (without the installer)
 
-Because the script can shut your machine down, the recommended way to run it is with
-a **per-command execution-policy bypass** — this relaxes the policy for that single
-run only and leaves the system default untouched.
+If you'd rather create the tasks by hand, these `schtasks` commands are the
+equivalent. Run them from an **elevated** Command Prompt or PowerShell.
 
-Normal run with defaults (30 min idle, 60 s warning, graceful shutdown):
-
-```
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\IdleShutdown.ps1"
-```
-
-Custom values:
+**NoUserShutdown** (SYSTEM, every 5 minutes, runs with no one logged in):
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\IdleShutdown.ps1" -IdleMinutes 45 -WarningSeconds 90
+schtasks /Create /TN "NoUserShutdown" /SC MINUTE /MO 5 /RU SYSTEM /RL HIGHEST /F /TR "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\Scripts\NoUserShutdown.ps1\""
 ```
 
-Force-close apps on shutdown (use with care — no save prompts):
+**IdleShutdown** (interactive, at logon, runs as you):
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\IdleShutdown.ps1" -Force
+schtasks /Create /TN "IdleShutdown" /SC ONLOGON /IT /RL LIMITED /F /TR "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\Scripts\IdleShutdown.ps1\""
 ```
 
-### "running scripts is disabled on this system"
+> **Important gotcha for the idle task:** tasks created with `schtasks` get a default
+> 3-day run limit, which would silently kill the idle loop after 72 hours. Remove the
+> limit (the installer does this for you):
+>
+> ```
+> $t = Get-ScheduledTask IdleShutdown; $t.Settings.ExecutionTimeLimit = 'PT0S'; Set-ScheduledTask IdleShutdown -Settings $t.Settings
+> ```
 
-If you call the script **without** `-ExecutionPolicy Bypass`, Windows may block it:
+### Or via the Task Scheduler GUI
 
-```
-... cannot be loaded because running scripts is disabled on this system.
-```
+The only settings that matter and differ between the two tasks:
 
-Fix it either per-command (preferred) by adding the flag as shown above, or
-permanently for your user only:
+- **IdleShutdown** — General tab: **Run only when user is logged on**. Trigger: **At
+  log on**. Action: `powershell.exe` with arguments
+  `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Scripts\IdleShutdown.ps1"`.
+  Settings: turn off "Stop the task if it runs longer than..." (it loops forever).
+- **NoUserShutdown** — General tab: **Run whether user is logged on or not**, change
+  user to **SYSTEM**, **Run with highest privileges**. Trigger: **On a schedule**,
+  **One time**, repeat every **5 minutes** indefinitely. Action: `powershell.exe` with
+  `-NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\NoUserShutdown.ps1"`.
 
-```
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
-```
-
-`RemoteSigned` allows local scripts you wrote to run while still requiring downloaded
-scripts to be signed. The per-command bypass is the more contained choice and is what
-the scheduled task and the `.vbs` launcher already use, so changing the system policy
-is not required.
+The fully-hidden `IdleShutdown.vbs` launcher is an alternative idle-task action
+(`wscript.exe "C:\Scripts\IdleShutdown.vbs"`) if the brief console flash bothers you.
+Note Windows is deprecating VBScript, so the `-WindowStyle Hidden` approach above is
+the more future-proof choice.
 
 ---
 
-## Testing it
+## Script parameters
 
-Use short values so you don't have to wait 30 minutes. From a PowerShell window:
+### IdleShutdown.ps1
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `-IdleMinutes` | `30` | Minutes of no keyboard/mouse input before the warning. |
+| `-WarningSeconds` | `60` | Length of the cancellable countdown. |
+| `-CpuBusyPercent` | `25` | At/above this total CPU%, the machine is "busy" and shutdown is skipped. |
+| `-NetBusyKBps` | `200` | At/above this total network KB/s, shutdown is skipped. |
+| `-AnyDeskCpuFrac` | `0.03` | AnyDesk CPU (fraction of one core) above which a *live* AnyDesk session is assumed. |
+| `-Force` | off | Force-close apps on shutdown (`/s /f`), no save prompts. |
+| `-LogFile` | `%LOCALAPPDATA%\IdleShutdown.log` | Decision log. |
+
+### NoUserShutdown.ps1
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `-NoUserMinutes` | `30` | Minutes with no interactive user before shutdown. |
+| `-Force` | off | Force-close on shutdown. |
+| `-DryRun` | off | Log what it *would* do instead of shutting down (for testing). |
+| `-StateFile` | `%ProgramData%\IdleShutdown\nouser.flag` | Timestamp file tracking the grace period. |
+| `-LogFile` | `%ProgramData%\IdleShutdown\nouser.log` | Decision log. |
+
+---
+
+## How each script decides to shut down
+
+### IdleShutdown
+1. Every 30 s it reads how long since the last keyboard/mouse input (`GetLastInputInfo`).
+2. Once idle ≥ `IdleMinutes`, it runs a **busy check** and skips (logging the reason) if:
+   - an **RDP** session is connected;
+   - a **live AnyDesk** session is detected (via AnyDesk's CPU — merely running AnyDesk does *not* block shutdown);
+   - a **watched process** is running (downloads, builds, players — see the `$BusyProcesses` list in the script);
+   - **CPU** ≥ `CpuBusyPercent`, or **network** ≥ `NetBusyKBps`.
+3. Otherwise it shows the countdown dialog. **Cancel**, Esc, or moving the mouse aborts.
+4. At zero it re-checks "busy" once more (in case a download started mid-countdown), then shuts down.
+
+### NoUserShutdown
+1. Each run checks whether any interactive user is logged on, in a **locale-independent**
+   way: every interactive desktop session (active, locked, or a disconnected RDP session
+   whose programs are still running) has exactly one `explorer.exe` owned by that user.
+2. If a user is present, it clears the grace timer and exits.
+3. If nobody is present, it writes a timestamp the first time, and on later runs compares
+   elapsed time to `NoUserMinutes`. Once exceeded, it shuts down.
+4. If detection itself errors, it assumes a user *is* present and does nothing (fail-safe).
+
+Both scripts log every decision, so you can always see why a shutdown did or didn't happen.
+
+---
+
+## Testing
+
+### IdleShutdown — use short values
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\IdleShutdown.ps1" -IdleMinutes 1 -WarningSeconds 15
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Scripts\IdleShutdown.ps1 -IdleMinutes 1 -WarningSeconds 15
 ```
 
-Then **stop touching the keyboard and mouse**. After ~1 minute idle the warning
-dialog should appear with a 15-second countdown.
-
-- Click **Cancel shutdown** (or press Esc, or move the mouse) — it should cancel and
-  the log should record "Cancelled by user/activity."
-- Let the countdown finish — it should shut down (or, with no `-Force`, give apps a
-  chance to prompt).
-
-**Test the busy checks** (these should *prevent* shutdown — verify in the log):
-
-- **Playback:** open VLC, then let the machine
-  go idle. The log should say it skipped with the process name or "network busy."
-- **RDP:** connect via Remote Desktop, then let it idle. The log should report
-  "active remote (RDP) session."
-- **AnyDesk:** start a real AnyDesk session and let it idle. The log should report
-  "active AnyDesk session." Disconnect and confirm it then proceeds normally. If a
-  static-screen session slips through, lower `-AnyDeskCpuFrac` to `0.01`–`0.02`.
-
-**Watch the log live** while testing:
+Stop touching the keyboard/mouse. After ~1 minute the dialog appears with a 15 s
+countdown. Click **Cancel** (or move the mouse) to abort; let it run to confirm
+shutdown. Test the busy guards by starting a download / opening VLC / connecting RDP
+or AnyDesk while idle — the log should show it skipping. Watch the log live:
 
 ```
 Get-Content "$env:LOCALAPPDATA\IdleShutdown.log" -Wait -Tail 20
 ```
 
-**Verify process names** for tools you care about (a wrong name silently matches
-nothing). With each tool running:
+### NoUserShutdown — use `-DryRun`
+
+You can't watch the "no user" path while logged in, so use the dry-run switch, which
+logs what it would do instead of shutting down. Register a fast dry-run task:
 
 ```
-Get-Process erl, bb, clojure, lein, dart, java -ErrorAction SilentlyContinue
+schtasks /Create /TN "NoUserShutdown" /SC MINUTE /MO 1 /RU SYSTEM /RL HIGHEST /F /TR "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\Scripts\NoUserShutdown.ps1\" -NoUserMinutes 2 -DryRun"
 ```
 
-If a tool isn't listed under one of the configured names, edit the `$BusyProcesses`
-array near the top of `IdleShutdown.ps1`.
+Then **sign out** (not just lock — locking still counts as logged on). Wait a few
+minutes, sign back in, and read the log:
+
+```
+Get-Content "$env:ProgramData\IdleShutdown\nouser.log" -Tail 20
+```
+
+You should see the grace timer start, then a `DRYRUN: ... would shut down` line. Once
+happy, re-run the installer (or recreate the task) without `-DryRun` and with your real
+threshold. You can also sanity-check detection while logged in — it should report a
+user present:
+
+```
+powershell -ExecutionPolicy Bypass -File C:\Scripts\NoUserShutdown.ps1 -DryRun
+Get-Content "$env:ProgramData\IdleShutdown\nouser.log" -Tail 3
+```
+
+### Verifying process names (idle task)
+
+A wrong process name silently matches nothing. With each tool running, confirm it
+shows up under the name in `$BusyProcesses`:
+
+```
+Get-Process erl, bb, dart, java, node -ErrorAction SilentlyContinue
+```
 
 ---
 
-## Running it automatically at logon (Task Scheduler)
+## Tuning the idle busy-list
 
-This is how to make Windows start the watcher every time you log in.
+`$BusyProcesses` near the top of `IdleShutdown.ps1` lists programs that block shutdown
+while running (case-insensitive, no `.exe`). Notes:
 
-1. Open **Task Scheduler** → **Create Task** (not "Create Basic Task").
-2. **General** tab:
-   - Give it a name, e.g. `Idle Shutdown`.
-   - Select **Run only when user is logged on** (required — the warning dialog must
-     be visible on your desktop).
-3. **Triggers** tab → **New** → Begin the task: **At log on** → your user.
-4. **Actions** tab → **New** → Action: **Start a program**.
-   - To show a brief console window, use:
-     - Program/script: `powershell.exe`
-     - Add arguments:
-       `-NoProfile -ExecutionPolicy Bypass -File "C:\Scripts\IdleShutdown.ps1"`
-   - To run **fully hidden** (recommended), use the VBS launcher instead:
-     - Program/script: `wscript.exe`
-     - Add arguments: `"C:\Scripts\IdleShutdown.vbs"`
-5. **Conditions** tab: if this is a desktop, uncheck **Start the task only if the
-   computer is on AC power**.
-6. **Settings** tab: uncheck **Stop the task if it runs longer than...** (the script
-   is meant to run indefinitely).
+- **Elixir / Erlang:** on Windows the BEAM VM runs *inside* `erl.exe` (no separate
+  `beam.smp` as on Linux), so `erl` covers `mix`, `iex`, and Phoenix. `epmd` and
+  `erlsrv` are intentionally excluded — they're persistent daemons/services that would
+  block shutdown whenever Erlang is merely installed.
+- **Clojure:** JVM work (`clj`, `clojure`, `lein`, `shadow-cljs`) already shows up as
+  `java`/`node`. `bb` (babashka) is a native GraalVM binary that does *not* use the JVM,
+  so it's listed explicitly.
+- **AnyDesk** is handled by live-session detection, not this list, so installing/running
+  AnyDesk alone won't block shutdown.
 
-To pass custom parameters from the task, append them to the Arguments field (for the
-PowerShell action) or edit them inside the `.vbs` (for the wscript action). For
-example, to force-close apps: add `-Force` to the end of the PowerShell arguments.
-
-### The VBS launcher
-
-`IdleShutdown.vbs` starts the script with no visible console window. Its content runs
-PowerShell hidden; edit the path (and any parameters) inside it if your script lives
-elsewhere:
-
-```vbs
-shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""C:\Scripts\IdleShutdown.ps1""", 0, False
-```
-
-To add parameters, put them inside the inner quotes, e.g.
-`...IdleShutdown.ps1"" -IdleMinutes 45 -Force`.
-
-> Note: Windows is gradually deprecating VBScript. If the `.vbs` launcher ever stops
-> working after an update, switch the task back to the `powershell.exe` action with
-> `-WindowStyle Hidden` added, or use a shortcut set to "Minimized."
-
----
-
-## Tuning the busy list
-
-The `$BusyProcesses` array near the top of `IdleShutdown.ps1` controls which programs
-block shutdown when running. Names are case-insensitive and **without** the `.exe`.
-Notes on the trickier ones:
-
-- **Elixir / Erlang:** on Windows the BEAM VM runs inside `erl.exe` (there is no
-  separate `beam.smp` process as on Linux), so `erl` covers `mix`, `iex`, and Phoenix.
-  `epmd` and `erlsrv` are intentionally excluded — they are persistent daemons/services
-  that would block shutdown whenever Erlang is merely installed.
-- **Clojure:** JVM-based work (`clj`, `clojure`, `lein`, `shadow-cljs`) already shows
-  up as `java` or `node`, which are listed. `bb` (babashka) is a native GraalVM binary
-  that does **not** use the JVM, so it is listed explicitly.
-- **AnyDesk** is *not* in this list — it is handled separately by live-session
-  detection, so installing/running AnyDesk alone won't block shutdown.
-
-The CPU and network thresholds act as a backstop: even a heavy process whose name
-isn't listed will usually be caught by `-CpuBusyPercent` or `-NetBusyKBps`.
+The CPU and network thresholds are a backstop for heavy processes whose names aren't listed.
 
 ---
 
 ## Known limitations
 
-- **Idle detection is local input only.** Long-running work with no keyboard/mouse
-  input is invisible to the idle timer itself — that's exactly why the busy checks
-  (processes, CPU, network, remote sessions) exist as guards.
-- **Disconnected RDP sessions.** If someone connects via RDP, does work, then closes
-  the client *without logging off*, the session becomes "disconnected" and is not
-  counted as active — the machine can still shut down, and with `-Force` it would not
-  prompt to save the orphaned session's work. Be cautious with `-Force` on machines
-  you RDP into.
-- **AnyDesk static-screen sessions.** Detection is based on CPU; a connected session
-  with a completely static screen and no interaction may register as low usage. Lower
-  `-AnyDeskCpuFrac` if needed.
-- **`qwinsta` text parsing is locale-sensitive.** On non-English Windows the RDP check
-  relies on the words "Active"/"Console" appearing in English `qwinsta` output. Verify
-  with `qwinsta` while connected if you run a localized Windows.
-- **The warning dialog renders on the console session.** If the screen is off/locked
-  or you're in a different remote/console context, you may not see it; note that
-  waking the screen by moving the mouse also cancels the shutdown.
+- **Idle detection is local input only.** Long-running work with no keyboard/mouse input
+  is invisible to the idle timer — which is exactly why the busy checks exist as guards.
+- **Disconnected RDP counts as "logged on"** in `NoUserShutdown` (its `explorer.exe`
+  persists), so the machine won't shut down on top of a disconnected session's running
+  programs. If you instead want "shut down when nobody is *actively connected*", that
+  needs session-state detection (the locale-sensitive `qwinsta`/`quser` route).
+- **In `IdleShutdown`, a disconnected RDP session is *not* counted as active**, so an
+  idle machine can shut down with that session's unsaved work open — and `-Force` would
+  skip the save prompts. Be cautious with `-Force` on machines you RDP into.
+- **AnyDesk static-screen sessions** may register as low CPU; lower `-AnyDeskCpuFrac` if a
+  connected-but-idle session slips through.
+- **`qwinsta` text parsing is locale-sensitive.** The idle task's RDP check relies on the
+  English words "Active"/"Console" in `qwinsta` output; verify on localized Windows.
+- **The warning dialog renders on the console session.** If the screen is off/locked or
+  you're in a different context you may not see it — and waking the screen by moving the
+  mouse also cancels the shutdown.
 
 ---
 
-## Security note
+## Security notes
 
-Whatever folder holds `IdleShutdown.ps1` (and the `.vbs`) should be **writable by
-administrators only**. The script runs at every logon with your privileges, so if a
-non-admin process can rewrite it, that process effectively runs as you. This is the
-most important hardening step in the whole setup — more so than the execution policy.
-Running with the per-command `-ExecutionPolicy Bypass` (rather than loosening the
-system-wide policy) keeps Windows' default protections in place for everything else.
+- **Lock down `C:\Scripts`** (and `C:\ProgramData\IdleShutdown`). The installer does this
+  by default using well-known SIDs: SYSTEM and Administrators get full control, Users get
+  read/execute only. This matters because `NoUserShutdown` runs as **SYSTEM** and
+  `IdleShutdown` runs at every logon — if a non-admin process could rewrite either script,
+  it would run with those privileges. This is the single most important hardening step.
+- **Use `-ExecutionPolicy Bypass` per command** (as all the examples do) rather than
+  loosening the machine-wide execution policy, so Windows' default protections stay in
+  place for everything else.
+- **`-Force` removes the save-prompt safety net.** Leave it off unless you specifically
+  want unconditional shutdowns; the default graceful shutdown lets apps prompt to save.
