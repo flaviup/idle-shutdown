@@ -26,7 +26,7 @@ path editing is needed. The examples below use `C:\Scripts`, but any path works.
 |------|---------|
 | `IdleShutdown.ps1` | Inactivity watcher. Shuts down after no input for N minutes, unless the machine is busy (remote session, build, download, playback, high CPU/network). Shows a countdown dialog with a **Cancel** button first. |
 | `NoUserShutdown.ps1` | "No user logged on" watcher. Shuts down once nobody has been logged on for N minutes. No dialog. |
-| `Install-ShutdownTasks.ps1` | Registers both scheduled tasks and (by default) locks down the folders. **Self-elevates** via UAC if not run as admin. |
+| `Install-ShutdownTasks.ps1` | Registers both scheduled tasks, **starts them immediately**, and (by default) locks down the folders. **Self-elevates** via UAC if not run as admin. |
 | `Uninstall-ShutdownTasks.ps1` | Removes the tasks; optionally the state/logs (`-RemoveState`) and the folder hardening (`-RestoreAcl`). Self-elevates. |
 | `install (run as admin).cmd` | One-click launcher. Right-click -> **Run as administrator** to install with `-Force`. |
 | `uninstall (run as admin).cmd` | One-click launcher. Right-click -> **Run as administrator** to fully uninstall (tasks + state + ACL restore). |
@@ -60,6 +60,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\Scripts\Install-ShutdownT
 ```
 Get-ScheduledTask | Where-Object TaskName -in 'IdleShutdown','NoUserShutdown' | Format-Table TaskName, State
 ```
+
+The installer also **starts both tasks immediately** after registering them, so the
+idle watcher is live right away rather than waiting for your next logon, and the
+no-user check runs once on the spot instead of waiting for its first interval. Starting
+`IdleShutdown` is harmless — it only begins the idle timer and won't act until the
+machine is genuinely idle for `-IdleMinutes`.
 
 ### Uninstall
 

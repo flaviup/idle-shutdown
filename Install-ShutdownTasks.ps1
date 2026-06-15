@@ -107,6 +107,14 @@ Register-ScheduledTask -TaskName 'IdleShutdown' `
     -Action $idleAction -Trigger $idleTrigger -Principal $idlePrincipal -Settings $idleSettings -Force | Out-Null
 Write-Host "Registered 'IdleShutdown'  -> runs as $IdleTaskUser at logon ($IdleMinutes min idle)." -ForegroundColor Green
 
+# Start it now so the watcher is live immediately instead of waiting for next logon.
+try {
+    Start-ScheduledTask -TaskName 'IdleShutdown'
+    Write-Host "  Started 'IdleShutdown' now (watcher is live; it won't act until you're actually idle)." -ForegroundColor Green
+} catch {
+    Write-Host "  Could not start 'IdleShutdown' now: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 # ===== NoUserShutdown : SYSTEM, every N minutes, logged on or not ===========
 $nuArg = "-NoProfile -ExecutionPolicy Bypass -File `"$nuPs`" -NoUserMinutes $NoUserMinutes$forceArg"
 
@@ -122,6 +130,14 @@ Register-ScheduledTask -TaskName 'NoUserShutdown' `
     -Description 'Shut down when no interactive user is logged on.' `
     -Action $nuAction -Trigger $nuTrigger -Principal $nuPrincipal -Settings $nuSettings -Force | Out-Null
 Write-Host "Registered 'NoUserShutdown' -> runs as SYSTEM every $NoUserCheckMins min ($NoUserMinutes min no-user)." -ForegroundColor Green
+
+# Run it once now so it starts its checks immediately instead of waiting for the first tick.
+try {
+    Start-ScheduledTask -TaskName 'NoUserShutdown'
+    Write-Host "  Ran 'NoUserShutdown' once now (you're logged on, so it just logs and exits)." -ForegroundColor Green
+} catch {
+    Write-Host "  Could not start 'NoUserShutdown' now: $($_.Exception.Message)" -ForegroundColor Yellow
+}
 
 # ===== folder hardening =====================================================
 if (-not (Test-Path $stateDir)) { New-Item -ItemType Directory -Path $stateDir -Force | Out-Null }
