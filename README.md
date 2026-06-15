@@ -131,7 +131,7 @@ schtasks /Create /TN "NoUserShutdown" /SC MINUTE /MO 5 /RU SYSTEM /RL HIGHEST /F
 **IdleShutdown** (interactive, at logon, runs as you):
 
 ```
-schtasks /Create /TN "IdleShutdown" /SC ONLOGON /IT /RL LIMITED /F /TR "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\Scripts\IdleShutdown.ps1\""
+schtasks /Create /TN "IdleShutdown" /SC ONLOGON /IT /RL LIMITED /F /TR "conhost.exe powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"C:\Scripts\IdleShutdown.ps1\""
 ```
 
 > **Important gotcha for the idle task:** tasks created with `schtasks` get a default
@@ -145,8 +145,11 @@ schtasks /Create /TN "IdleShutdown" /SC ONLOGON /IT /RL LIMITED /F /TR "powershe
 > This manual version differs from the installer in one way: `ONLOGON` only fires on a
 > fresh sign-in, not on RDP reconnect/unlock, so the watcher won't restart for a
 > reconnected session. The installer adds session-connect/unlock triggers to cover that.
-> (The empty-window problem is handled inside `IdleShutdown.ps1` itself — it hides its
-> own console on startup — so it's gone regardless of how the task launches it.)
+> (The window is kept hidden two ways: `IdleShutdown.ps1` hides its own console, and the
+> task launches through `conhost.exe`. The `conhost.exe` part matters on Windows 11,
+> where the default console host is Windows Terminal — under it `GetConsoleWindow()`
+> returns a hidden pseudo-handle, so the hide can't reach the visible window. Routing
+> through classic `conhost.exe` restores normal hide behavior.)
 
 ### Or via the Task Scheduler GUI
 

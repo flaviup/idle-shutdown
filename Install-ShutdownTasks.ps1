@@ -89,13 +89,16 @@ if ($missing) {
 $forceArg = if ($Force) { ' -Force' } else { '' }
 
 # ===== IdleShutdown : interactive, fires at logon + on session connect ======
-# Launch powershell directly. The script hides its own console window at startup
-# (see IdleShutdown.ps1), so no VBScript launcher is needed; -WindowStyle Hidden
-# trims the startup flash. ExecutionTimeLimit Zero = unlimited (script loops forever).
-$idleArg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$idlePs`"" +
+# Launch through classic conhost.exe. On Windows 11 the default console host is
+# Windows Terminal, and under it GetConsoleWindow() returns a hidden pseudo-console
+# handle (not the visible terminal window) -- so neither -WindowStyle Hidden nor the
+# script's own ShowWindow hide can hide what you actually see. Invoking conhost.exe
+# explicitly forces the classic console host, where both hide mechanisms work.
+# ExecutionTimeLimit Zero = unlimited (the script loops forever).
+$idleArg = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$idlePs`"" +
            " -IdleMinutes $IdleMinutes -WarningSeconds $WarningSeconds$forceArg"
 
-$idleAction    = New-ScheduledTaskAction    -Execute 'powershell.exe' -Argument $idleArg
+$idleAction    = New-ScheduledTaskAction    -Execute 'conhost.exe' -Argument $idleArg
 $idlePrincipal = New-ScheduledTaskPrincipal -UserId $IdleTaskUser -LogonType Interactive -RunLevel Limited
 $idleSettings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
                     -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
