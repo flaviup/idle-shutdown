@@ -11,11 +11,13 @@ being used, plus scripts (and one-click wrappers) to install and remove them
 
 The two cover different gaps and can run together: `IdleShutdown` handles "signed in
 but idle" and shows a cancellable warning; `NoUserShutdown` handles "no one is signed
-in" and runs silently in the background.
+in" and runs silently in the background. **When you log off**, `IdleShutdown` stops (it
+lives in your session), and `NoUserShutdown` takes over the "nobody's here" job. When
+you sign back in — or reconnect/unlock over RDP — `IdleShutdown` restarts automatically.
 
 The bundle is **relocatable** — put the folder wherever you like and everything
 resolves relative to itself: the install/uninstall scripts default their `-ScriptsDir`
-to their own location, and the `.cmd` / `.vbs` launchers resolve paths from theirs. No
+to their own location, and the `.cmd` launchers resolve paths from theirs. No
 path editing is needed. The examples below use `C:\Scripts`, but any path works.
 
 ---
@@ -30,7 +32,6 @@ path editing is needed. The examples below use `C:\Scripts`, but any path works.
 | `Uninstall-ShutdownTasks.ps1` | Removes the tasks; optionally the state/logs (`-RemoveState`) and the folder hardening (`-RestoreAcl`). Self-elevates. |
 | `install (run as admin).cmd` | One-click launcher. Right-click -> **Run as administrator** to install with `-Force`. |
 | `uninstall (run as admin).cmd` | One-click launcher. Right-click -> **Run as administrator** to fully uninstall (tasks + state + ACL restore). |
-| `IdleShutdown.vbs` | *Optional.* Launches `IdleShutdown.ps1` with zero console flash. Only needed if you switch the idle task to use it (see the installer comments). |
 
 ---
 
@@ -101,11 +102,11 @@ Omit the switches to remove only the tasks and leave state/permissions untouched
 
 - The whole set is **relocatable with no edits**. `Install-ShutdownTasks.ps1` and
   `Uninstall-ShutdownTasks.ps1` default `-ScriptsDir` to `$PSScriptRoot` (their own
-  folder), the `.cmd` wrappers launch the installer via `%~dp0` (the folder the `.cmd`
-  sits in), and `IdleShutdown.vbs` resolves its own folder too. Move the folder anywhere
-  and everything still points at itself. The registered tasks are written with whatever
-  absolute path the folder resolves to at install time, so if you later *move* the folder,
-  re-run the installer from the new location to repoint the tasks.
+  folder), and the `.cmd` wrappers launch the installer via `%~dp0` (the folder the
+  `.cmd` sits in). Move the folder anywhere and everything still points at itself. The
+  registered tasks are written with whatever absolute path the folder resolves to at
+  install time, so if you later *move* the folder, re-run the installer from the new
+  location to repoint the tasks.
 - Both `Install-ShutdownTasks.ps1` and `Uninstall-ShutdownTasks.ps1` **self-elevate**:
   if launched un-elevated they relaunch through a UAC prompt (with `-NoExit`, so the
   elevated window stays open to show output). Running them from an already-elevated
@@ -140,6 +141,12 @@ schtasks /Create /TN "IdleShutdown" /SC ONLOGON /IT /RL LIMITED /F /TR "powershe
 > ```
 > $t = Get-ScheduledTask IdleShutdown; $t.Settings.ExecutionTimeLimit = 'PT0S'; Set-ScheduledTask IdleShutdown -Settings $t.Settings
 > ```
+>
+> This manual version differs from the installer in one way: `ONLOGON` only fires on a
+> fresh sign-in, not on RDP reconnect/unlock, so the watcher won't restart for a
+> reconnected session. The installer adds session-connect/unlock triggers to cover that.
+> (The empty-window problem is handled inside `IdleShutdown.ps1` itself — it hides its
+> own console on startup — so it's gone regardless of how the task launches it.)
 
 ### Or via the Task Scheduler GUI
 
@@ -185,6 +192,12 @@ The only settings that matter and differ between the two tasks:
 ## How each script decides to shut down
 
 ### IdleShutdown
+The task starts it **at logon, on RDP connect, and on unlock** (the script's mutex
+prevents duplicate instances if more than one fires), and it keeps running as a loop
+until the session ends. On **logoff** the session ends and the watcher stops — that's
+expected, and its "Last Run Result" of `0xC000013A` (terminated) is normal; `NoUserShutdown`
+covers you while logged off. While running it:
+
 1. Every 30 s it reads how long since the last keyboard/mouse input (`GetLastInputInfo`).
 2. Once idle >= `IdleMinutes`, it runs a **busy check** and skips (logging the reason) if:
    - an **RDP** session is connected;

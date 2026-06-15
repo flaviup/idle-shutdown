@@ -88,24 +88,37 @@ if ($missing) {
 
 $forceArg = if ($Force) { ' -Force' } else { '' }
 
-# ===== IdleShutdown : interactive, fires at logon ==========================
-# -WindowStyle Hidden keeps the console from lingering (a brief flash at logon
-# is possible; the optional IdleShutdown.vbs launcher avoids even that).
-# ExecutionTimeLimit Zero = unlimited, required because the script loops forever
-# (the default task limit of 3 days would otherwise kill it).
+# ===== IdleShutdown : interactive, fires at logon + on session connect ======
+# Launch powershell directly. The script hides its own console window at startup
+# (see IdleShutdown.ps1), so no VBScript launcher is needed; -WindowStyle Hidden
+# trims the startup flash. ExecutionTimeLimit Zero = unlimited (script loops forever).
 $idleArg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$idlePs`"" +
            " -IdleMinutes $IdleMinutes -WarningSeconds $WarningSeconds$forceArg"
 
 $idleAction    = New-ScheduledTaskAction    -Execute 'powershell.exe' -Argument $idleArg
-$idleTrigger   = New-ScheduledTaskTrigger   -AtLogOn -User $IdleTaskUser
 $idlePrincipal = New-ScheduledTaskPrincipal -UserId $IdleTaskUser -LogonType Interactive -RunLevel Limited
 $idleSettings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
                     -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
 
+# Triggers: at logon (fresh sign-in) + on RDP connect + on unlock. RDP *reconnect*
+# is not a logon, so without the session triggers the watcher wouldn't restart for
+# a reconnected session. The script's mutex stops duplicates if several fire at once.
+$idleLogon = New-ScheduledTaskTrigger -AtLogOn -User $IdleTaskUser
+$sstcClass = Get-CimClass -Namespace 'Root\Microsoft\Windows\TaskScheduler' -ClassName 'MSFT_TaskSessionStateChangeTrigger'
+$idleConnect = New-CimInstance -CimClass $sstcClass -ClientOnly
+$idleConnect.StateChange = 3            # TASK_REMOTE_CONNECT (RDP connect)
+$idleConnect.UserId      = $IdleTaskUser
+$idleConnect.Enabled     = $true
+$idleUnlock = New-CimInstance -CimClass $sstcClass -ClientOnly
+$idleUnlock.StateChange  = 8            # TASK_SESSION_UNLOCK
+$idleUnlock.UserId       = $IdleTaskUser
+$idleUnlock.Enabled      = $true
+$idleTriggers = @($idleLogon, $idleConnect, $idleUnlock)
+
 Register-ScheduledTask -TaskName 'IdleShutdown' `
     -Description 'Shut down after user inactivity (with cancellable warning).' `
-    -Action $idleAction -Trigger $idleTrigger -Principal $idlePrincipal -Settings $idleSettings -Force | Out-Null
-Write-Host "Registered 'IdleShutdown'  -> runs as $IdleTaskUser at logon ($IdleMinutes min idle)." -ForegroundColor Green
+    -Action $idleAction -Trigger $idleTriggers -Principal $idlePrincipal -Settings $idleSettings -Force | Out-Null
+Write-Host "Registered 'IdleShutdown'  -> runs as $IdleTaskUser at logon / RDP connect / unlock ($IdleMinutes min idle)." -ForegroundColor Green
 
 # Start it now so the watcher is live immediately instead of waiting for next logon.
 try {

@@ -18,6 +18,20 @@ param(
 $mutex = New-Object System.Threading.Mutex($false, "Global\IdleShutdownScript")
 if (-not $mutex.WaitOne(0)) { exit }   # another copy already running
 
+# ---- hide our own console window (no VBS) ----------------------------------
+# An interactive scheduled task launches powershell with a console window, and
+# -WindowStyle Hidden isn't reliable (it can re-show on RDP reconnect), so we
+# hide it from here. A brief flash at startup is possible before it disappears.
+# Wrapped in try/catch so a failure here never stops the watcher.
+try {
+    Add-Type -Name WinHide -Namespace Native -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+[DllImport("user32.dll")]   public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+'@
+    $__hwnd = [Native.WinHide]::GetConsoleWindow()
+    if ($__hwnd -ne [IntPtr]::Zero) { [void][Native.WinHide]::ShowWindow($__hwnd, 0) }  # 0 = SW_HIDE
+} catch {}
+
 # ---- logging ---------------------------------------------------------------
 function Log([string]$msg) {
     $line = "{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $msg
@@ -37,7 +51,7 @@ $BusyProcesses = @(
     'rclone',
     # builds / dev (your workloads)
     'dart','flutter','gradle','java','node','msbuild','cl','link','cmake',
-    'cargo','rustc','python', 'python3',
+    'cargo','rustc','python','python3',
     # 'docker','dockerd','com.docker.backend',
     # Elixir / Erlang -- on Windows the BEAM VM runs *inside* erl.exe (there is
     # no separate beam.smp process as on Linux). epmd and erlsrv are persistent
