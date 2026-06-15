@@ -13,8 +13,10 @@ The two cover different gaps and can run together: `IdleShutdown` handles "signe
 but idle" and shows a cancellable warning; `NoUserShutdown` handles "no one is signed
 in" and runs silently in the background.
 
-All scripts assume the folder **`C:\Scripts`**. Change it with the installer's
-`-ScriptsDir` parameter if you use a different location.
+The bundle is **relocatable** — put the folder wherever you like and everything
+resolves relative to itself: the install/uninstall scripts default their `-ScriptsDir`
+to their own location, and the `.cmd` / `.vbs` launchers resolve paths from theirs. No
+path editing is needed. The examples below use `C:\Scripts`, but any path works.
 
 ---
 
@@ -34,7 +36,8 @@ All scripts assume the folder **`C:\Scripts`**. Change it with the installer's
 
 ## Quick start
 
-Copy the script files plus the `.cmd` wrappers into `C:\Scripts`, then **either**:
+Copy the script files plus the `.cmd` wrappers into a folder of your choice (these
+examples use `C:\Scripts`), then **either**:
 
 **Easiest — right-click `install (run as admin).cmd` -> Run as administrator.**
 That installs with `-Force` and pauses at the end so you can read the result.
@@ -77,7 +80,7 @@ Omit the switches to remove only the tasks and leave state/permissions untouched
 
 | Parameter | Default | Meaning |
 |-----------|---------|---------|
-| `-ScriptsDir` | `C:\Scripts` | Folder holding the scripts. |
+| `-ScriptsDir` | the script's own folder | Folder holding the scripts. Auto-detected (`$PSScriptRoot`); override only to point elsewhere. |
 | `-IdleTaskUser` | current user | Account whose session shows the idle dialog. Override if you elevate with a different account than the one you log in with daily. |
 | `-IdleMinutes` | `30` | Idle minutes before the warning. |
 | `-WarningSeconds` | `60` | Countdown length. |
@@ -90,6 +93,13 @@ Omit the switches to remove only the tasks and leave state/permissions untouched
 
 ## Notes on the wrappers and elevation
 
+- The whole set is **relocatable with no edits**. `Install-ShutdownTasks.ps1` and
+  `Uninstall-ShutdownTasks.ps1` default `-ScriptsDir` to `$PSScriptRoot` (their own
+  folder), the `.cmd` wrappers launch the installer via `%~dp0` (the folder the `.cmd`
+  sits in), and `IdleShutdown.vbs` resolves its own folder too. Move the folder anywhere
+  and everything still points at itself. The registered tasks are written with whatever
+  absolute path the folder resolves to at install time, so if you later *move* the folder,
+  re-run the installer from the new location to repoint the tasks.
 - Both `Install-ShutdownTasks.ps1` and `Uninstall-ShutdownTasks.ps1` **self-elevate**:
   if launched un-elevated they relaunch through a UAC prompt (with `-NoExit`, so the
   elevated window stays open to show output). Running them from an already-elevated

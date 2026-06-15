@@ -14,7 +14,7 @@
 #>
 
 param(
-    [string]$ScriptsDir = 'C:\Scripts',
+    [string]$ScriptsDir = $PSScriptRoot,   # defaults to this script's own folder
     [switch]$RemoveState,
     [switch]$RestoreAcl
 )
@@ -42,6 +42,9 @@ if (-not $isAdmin) {
 }
 
 $stateDir = Join-Path $env:ProgramData 'IdleShutdown'
+
+# Fall back to the current directory if $PSScriptRoot was empty.
+if ([string]::IsNullOrWhiteSpace($ScriptsDir)) { $ScriptsDir = (Get-Location).Path }
 
 # --- remove the scheduled tasks ---
 foreach ($t in 'IdleShutdown', 'NoUserShutdown') {

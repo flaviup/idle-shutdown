@@ -14,16 +14,19 @@
 
     Also (by default) locks the scripts + state folders to admin-write-only.
 
+    The scripts folder is auto-detected ($ScriptsDir defaults to this script's
+    own location), so the whole set can live in any folder with no edits.
+
     Registering scheduled tasks requires admin rights, so this script
     self-elevates: if you launch it un-elevated (e.g. with
-        powershell -NoProfile -ExecutionPolicy Bypass -File C:\Scripts\Install-ShutdownTasks.ps1
+        powershell -NoProfile -ExecutionPolicy Bypass -File "<folder>\Install-ShutdownTasks.ps1"
     ) it relaunches itself through a UAC prompt and keeps that window open so
     you can read the result.
     -------------------------------------------------------------------------
 #>
 
 param(
-    [string]$ScriptsDir   = 'C:\Scripts',
+    [string]$ScriptsDir   = $PSScriptRoot,                    # defaults to this script's own folder
     [string]$IdleTaskUser = "$env:USERDOMAIN\$env:USERNAME",  # whose session shows the dialog
     [int]$IdleMinutes     = 30,
     [int]$WarningSeconds  = 60,
@@ -65,6 +68,11 @@ if (-not $isAdmin) {
 }
 
 $ErrorActionPreference = 'Stop'
+
+# If launched in a way where $PSScriptRoot is empty (e.g. pasted into a console),
+# fall back to the current directory so we still have a sensible scripts folder.
+if ([string]::IsNullOrWhiteSpace($ScriptsDir)) { $ScriptsDir = (Get-Location).Path }
+
 $idlePs   = Join-Path $ScriptsDir   'IdleShutdown.ps1'
 $nuPs     = Join-Path $ScriptsDir   'NoUserShutdown.ps1'
 $stateDir = Join-Path $env:ProgramData 'IdleShutdown'

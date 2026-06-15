@@ -1,8 +1,10 @@
 ' IdleShutdown.vbs
 ' Launches IdleShutdown.ps1 fully hidden (no console flash).
-' Adjust the path below if you saved the script elsewhere.
+' Resolves its own folder, so it can live anywhere alongside IdleShutdown.ps1.
 
-Dim shell
+Dim shell, fso, here
+Set fso   = CreateObject("Scripting.FileSystemObject")
+here      = fso.GetParentFolderName(WScript.ScriptFullName)
 Set shell = CreateObject("WScript.Shell")
-shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""C:\Scripts\IdleShutdown.ps1""", 0, False
+shell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & here & "\IdleShutdown.ps1""", 0, False
 Set shell = Nothing
